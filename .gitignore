@@ -1,0 +1,7 @@
+.vscode
+.idea
+venv
+app/__pycache__
+prognosis/__pycache__
+prognosis/migrations/__pycache__
+info.txt

@@ -11,7 +11,7 @@ import numpy as np
 warnings.filterwarnings("ignore")
 
 
-def find_best_params(data):
+def find_best_arima_params_with_mse(data):
     p_values = range(0, 3)  # Задаем диапазоны для p, d, q
     d_values = range(0, 3)
     q_values = range(0, 3)
@@ -48,14 +48,18 @@ def find_best_params(data):
 
 def make_forecast(dataIncome):
     data = dataIncome["measures"]
-    if (dataIncome["is_auto_params_forecast"] == True):
-        best_params = find_best_params(data)
+    if (
+        dataIncome["is_auto_params_forecast"] == True
+        or dataIncome["is_auto_params_forecast"] == "true"
+    ):
+        best_params = find_best_arima_params_with_mse(data)
     else:
         best_params = [
             dataIncome["p_value"],
             dataIncome["d_value"],
             dataIncome["q_value"],
         ]
+    print(f"Best params: ${best_params}")
 
     # Создаем модель ARIMA с параметрами (p, d, q)
     model = ARIMA(data, order=best_params)
@@ -74,7 +78,7 @@ def make_forecast(dataIncome):
 # print(
 #     f"Прогноз: ${make_forecast( dataIncome={
 #                 "measures": [
-#     38498.6Ы,
+#     38498.6,
 #     23125.1,
 #     43188.2,
 #     23130.5,

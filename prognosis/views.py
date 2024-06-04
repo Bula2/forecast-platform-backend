@@ -10,12 +10,15 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from prognosis.forecasts import make_forecast
-from prognosis.models import Forecast
+from prognosis.models import Forecast, Dataset, Result, Visualization
 
 from .serializers import (
     ForecastSerializer,
+    DatasetSerializer,
+    ResultSerializer,
+    CurrentResultSerializer,
     RegisterUserSerializer,
-    AllForecastsSerializer,
+    VisualizationSerializer,
 )
 
 
@@ -125,29 +128,53 @@ def PostNewForecast(request):
         # Получаем пользователя
         user = User.objects.get(id=user_id)
 
+        # Создаем запись о датасете
+        dataset_serializer = DatasetSerializer(
+            data={"dimensions": dimensions, "measures": measures}
+        )
+        dataset_serializer.is_valid(raise_exception=True)
+        dataset_serializer.save()
+
+        # Создаем запись о прогнозе
         forecast_serializer = ForecastSerializer(
             data={
-                "title": title,
-                "subtitle": subtitle,
-                "user": user.id,
-                "dimensions": dimensions,
-                "measures": measures,
                 "is_auto_params_forecast": is_auto_params_forecast,
                 "p_value": p_value,
                 "q_value": q_value,
                 "d_value": d_value,
                 "forecast_measures": forecast_measures,
                 "n_count": n_count,
-                "visualization_type": visualization_type,
-                "color": color,
-                "unit": unit,
             }
         )
         forecast_serializer.is_valid(raise_exception=True)
         forecast_serializer.save()
 
+        # Создаем запись о визуализации
+        visualization_serializer = VisualizationSerializer(
+            data={
+                "visualization_type": visualization_type,
+                "color": color,
+                "unit": unit,
+            }
+        )
+        visualization_serializer.is_valid(raise_exception=True)
+        visualization_serializer.save()
+
+        final_result_serializer = ResultSerializer(
+            data={
+                "title": title,
+                "subtitle": subtitle,
+                "user": user.id,
+                "dataset": dataset_serializer.data["dataset_id"],
+                "forecast": forecast_serializer.data["forecast_id"],
+                "visualization": visualization_serializer.data["visualization_id"],
+            }
+        )
+        final_result_serializer.is_valid(raise_exception=True)
+        final_result_serializer.save()
+
         return Response(
-            {"forecast_id": forecast_serializer.data["forecast_id"]},
+            {"result_id": final_result_serializer.data["result_id"]},
             status=status.HTTP_201_CREATED,
         )
 
@@ -162,14 +189,17 @@ def PostNewForecast(request):
 @permission_classes([IsAuthenticated])
 def GetCurrentForecast(request):
     try:
-        forecast_id = request.GET.get("forecast_id", None)
-        result = Forecast.objects.filter(forecast_id=forecast_id)
-        forecast_serializer = ForecastSerializer(result, many=True)
-        forecast = forecast_serializer.data
+        user_id = request.GET.get("user_id", None)
+        result_id = request.GET.get("result_id", None)
+        result = Result.objects.filter(
+            user_id=user_id
+        ) & Result.objects.filter(result_id=result_id)
+        result_serializer = CurrentResultSerializer(result, many=True)
+        current_result = result_serializer.data
 
-        return Response(forecast, status=status.HTTP_200_OK)
+        return Response(current_result, status=status.HTTP_200_OK)
 
-    except Forecast.DoesNotExist:
+    except Result.DoesNotExist:
         return Response(
             {"details": "Информация о прогнозе не найдена."},
             status=status.HTTP_404_NOT_FOUND,
@@ -181,14 +211,14 @@ def GetCurrentForecast(request):
 def GetAllForecasts(request):
     try:
         user_id = request.GET.get("user_id", None)
-        forecasts = Forecast.objects.filter(user_id=user_id)
-        all_forecast_serializer = AllForecastsSerializer(forecasts, many=True)
-        all_forecasts = all_forecast_serializer.data
-        all_forecasts.reverse()
+        results = Result.objects.filter(user_id=user_id)
+        results_serializer = ResultSerializer(results, many=True)
+        current_results = results_serializer.data
+        current_results.reverse()
 
-        return Response(all_forecasts, status=status.HTTP_200_OK)
+        return Response(current_results, status=status.HTTP_200_OK)
 
-    except Forecast.DoesNotExist:
+    except Result.DoesNotExist:
         return Response(
             {"details": "Информация о прогнозах не найдена."},
             status=status.HTTP_404_NOT_FOUND,
@@ -200,18 +230,28 @@ def GetAllForecasts(request):
 def DeleteForecast(request):
     try:
         # Получаем запись о прогнозе
-        forecast_id = request.GET.get("forecast_id", None)
-        forecast = Forecast.objects.get(forecast_id=forecast_id)
+        result_id = request.GET.get("result_id", None)
+        result = Result.objects.get(result_id=result_id)
+
+        # Получаем связанные сущности
+        dataset_id = result.dataset_id
+        forecast_id = result.forecast_id
+        visualization_id = result.visualization_id
 
         # Удаляем запись о прогнозе
-        forecast.delete()
+        result.delete()
+
+        # Удаляем связанные сущности
+        Dataset.objects.get(dataset_id=dataset_id).delete()
+        Forecast.objects.get(forecast_id=forecast_id).delete()
+        Visualization.objects.get(visualization_id=visualization_id).delete()
 
         return Response(
             {"details": "Прогноз успешно удален."},
             status=status.HTTP_204_NO_CONTENT,
         )
 
-    except Forecast.DoesNotExist:
+    except Result.DoesNotExist:
         return Response(
             {"details": "Прогноз не найден."},
             status=status.HTTP_404_NOT_FOUND,
